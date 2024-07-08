@@ -99,17 +99,17 @@ Top correlations with AI detectability score difference:
 
 ## Visualizations
 
-[INSERT GRAPH 1: Bar plot of top 20 features by importance]
+![alt text](https://github.com/will4381/ai-detection-analysis/blob/main/images/top20features.png)
 
-[INSERT GRAPH 2: Bar plot of ablation study results]
+![alt text](https://github.com/will4381/ai-detection-analysis/blob/main/images/ablation.png)
 
-[INSERT GRAPH 3: Histogram of BERT cosine similarities]
+![alt text](https://github.com/will4381/ai-detection-analysis/blob/main/images/cosine.png)
 
-[INSERT GRAPH 4: Scatter plot of PCA results for BERT embeddings]
+![alt text](https://github.com/will4381/ai-detection-analysis/blob/main/images/pca.png)
 
-[INSERT GRAPH 5: Heatmap of feature interactions]
+![alt text](https://github.com/will4381/ai-detection-analysis/blob/main/images/heatmap.png)
 
-[INSERT GRAPH 6: Scatter plot of PCA results for shared representations in multi-task learning]
+![alt text](https://github.com/will4381/ai-detection-analysis/blob/main/images/pca(2).png)
 
 ## Conclusions
 
