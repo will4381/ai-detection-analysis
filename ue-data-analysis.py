@@ -1,6 +1,5 @@
-# From Google Colab notebook, with help from Claude Sonnet 3.5.
-# pip install pandas numpy torch transformers textstat nltk spacy scikit-learn tqdm textstat seaborn sns
-# python -m spacy download en_core_web_sm
+# !pip install pandas numpy torch transformers textstat nltk spacy scikit-learn tqdm textstat seaborn sns
+# !python -m spacy download en_core_web_sm
 
 import pandas as pd
 import numpy as np
@@ -13,6 +12,7 @@ from torch.utils.data import DataLoader, TensorDataset
 from torch.cuda.amp import autocast, GradScaler
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import StandardScaler
+from sklearn.decomposition import PCA
 from transformers import BertTokenizer, BertModel
 import spacy
 import nltk
@@ -21,7 +21,6 @@ from nltk.tag import pos_tag
 from nltk.corpus import wordnet
 import re
 from tqdm import tqdm
-from tqdm.auto import tqdm
 from textstat import textstat
 from collections import Counter
 import scipy.stats as stats
@@ -31,23 +30,17 @@ import matplotlib.pyplot as plt
 from google.colab import drive
 from google.colab import userdata
 
-# Ensure NLTK resources are downloaded
 nltk.download('punkt')
 nltk.download('averaged_perceptron_tagger')
 nltk.download('wordnet')
 
-tqdm.tqdm = tqdm
-
-# Load spaCy model
 nlp = spacy.load("en_core_web_sm")
 
-# Check if GPU is available
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 print(f"Using device: {device}")
 
 drive.mount('/content/drive')
 
-# Preprocess text data
 def preprocess_text(text):
     # Remove special characters and digits
     text = re.sub(r'[^a-zA-Z\s]', '', text)
@@ -136,11 +129,10 @@ def extract_paraphrasing_features(original, paraphrased):
 
     return {'word_overlap': word_overlap, 'pos_change': pos_change, 'synonym_usage': synonym_usage}
 
-# Load your data
+# Load your data (add your filepath)
 csv_path = '/content/drive/My Drive/ai_text_analysis_results_original.csv'
 df = pd.read_csv(csv_path)
 
-# Prepare data
 data = []
 
 for _, row in tqdm(df.iterrows(), total=len(df)):
@@ -167,49 +159,38 @@ for _, row in tqdm(df.iterrows(), total=len(df)):
 
     data.append(features)
 
-# Convert to DataFrame
 df_features = pd.DataFrame(data)
 
-# Print some information about the processed data
 print(f"Processed {len(df_features)} valid rows out of {len(df)} total rows")
 print(f"Shape of feature DataFrame: {df_features.shape}")
 
-# Replace NaN with 0
 df_features = df_features.fillna(0)
 
-# Separate features and target
 X = df_features.drop('score_diff', axis=1)
 y = df_features['score_diff']
 
-# Check for any remaining NaN or inf values
 print("Checking for infinite or NaN values:")
 print(X.isna().sum().sum())
 print(np.isinf(X).sum().sum())
 print(np.isnan(y).sum())
 
-# Check for any remaining NaN or inf values
 print("Checking for infinite or NaN values:")
 print(X.isna().sum().sum())
 print(np.isinf(X).sum().sum())
 print(np.isnan(y).sum())
 
-# Convert to numpy arrays
 X_np = X.to_numpy()
 y_np = y.to_numpy()
 
-# Split data
 X_train, X_test, y_train, y_test = train_test_split(X_np, y_np, test_size=0.2, random_state=42)
 
-# Create validation set from training set
 X_train, X_val, y_train, y_val = train_test_split(X_train, y_train, test_size=0.2, random_state=42)
 
-# Scale features
 scaler = StandardScaler()
 X_train_scaled = scaler.fit_transform(X_train)
 X_val_scaled = scaler.transform(X_val)
 X_test_scaled = scaler.transform(X_test)
 
-# Convert to PyTorch tensors
 X_train_tensor = torch.FloatTensor(X_train_scaled).to(device)
 y_train_tensor = torch.FloatTensor(y_train).unsqueeze(1).to(device)
 X_val_tensor = torch.FloatTensor(X_val_scaled).to(device)
@@ -220,7 +201,7 @@ y_test_tensor = torch.FloatTensor(y_test).unsqueeze(1).to(device)
 class AttentionNet(nn.Module):
     def __init__(self, input_size):
         super(AttentionNet, self).__init__()
-        self.attention = nn.Linear(input_size, input_size)  # Changed to input_size
+        self.attention = nn.Linear(input_size, input_size)
         self.fc1 = nn.Linear(input_size, 64)
         self.fc2 = nn.Linear(64, 32)
         self.fc3 = nn.Linear(32, 1)
@@ -248,7 +229,7 @@ class FeatureInteractionNet(nn.Module):
     def forward(self, x):
         batch_size = x.size(0)
 
-        # Compute pairwise interactions efficiently
+        # Compute pairwise interactions
         interactions = torch.bmm(x.unsqueeze(2), x.unsqueeze(1))
         interactions = interactions.view(batch_size, -1)
 
@@ -256,15 +237,12 @@ class FeatureInteractionNet(nn.Module):
         triu_indices = torch.triu_indices(self.input_size, self.input_size, offset=1)
         interactions = interactions[:, triu_indices[0] * self.input_size + triu_indices[1]]
 
-        # Apply interaction weights
         weighted_interactions = interactions * self.interaction_weight[triu_indices[0], triu_indices[1]]
 
-        # Concatenate original features and interactions
         combined = torch.cat([x, weighted_interactions], dim=1)
 
         return self.fc(combined)
 
-# Multi-Task Learning Network
 class MultiTaskNet(nn.Module):
     def __init__(self, input_size, num_tasks=1):
         super(MultiTaskNet, self).__init__()
@@ -282,13 +260,11 @@ class MultiTaskNet(nn.Module):
         shared_features = self.shared_layers(x)
         return [task_layer(shared_features) for task_layer in self.task_specific_layers]
 
-# Initialize models
 attention_model = AttentionNet(X_train_scaled.shape[1]).to(device)
 interaction_model = FeatureInteractionNet(X_train_scaled.shape[1]).to(device)
 num_tasks = 3
 multi_task_model = MultiTaskNet(X_train_scaled.shape[1], num_tasks).to(device)
 
-# Loss functions and optimizers
 criterion = nn.MSELoss()
 attention_optimizer = optim.Adam(attention_model.parameters(), lr=0.001)
 interaction_optimizer = optim.Adam(interaction_model.parameters(), lr=0.001)
@@ -344,10 +320,10 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, num_epoch
 
             with autocast():
                 outputs = model(batch_X)
-                if isinstance(outputs, tuple):  # AttentionNet output
-                    outputs, _ = outputs  # Unpack the tuple, ignoring attention weights
+                if isinstance(outputs, tuple):
+                    outputs, _ = outputs
                     loss = criterion(outputs, batch_y)
-                elif isinstance(outputs, list):  # Multi-task output
+                elif isinstance(outputs, list):
                     loss = sum(criterion(output, batch_y) for output in outputs)
                 else:
                     loss = criterion(outputs, batch_y)
@@ -360,7 +336,6 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, num_epoch
 
         avg_train_loss = total_loss / len(train_loader)
 
-        # Validation
         model.eval()
         val_loss = 0
         with torch.no_grad():
@@ -368,10 +343,10 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, num_epoch
                 batch_X, batch_y = batch_X.to(device), batch_y.to(device)
                 with autocast():
                     val_outputs = model(batch_X)
-                    if isinstance(val_outputs, tuple):  # AttentionNet output
-                        val_outputs, _ = val_outputs  # Unpack the tuple, ignoring attention weights
+                    if isinstance(val_outputs, tuple):
+                        val_outputs, _ = val_outputs
                         val_loss += criterion(val_outputs, batch_y).item()
-                    elif isinstance(val_outputs, list):  # Multi-task output
+                    elif isinstance(val_outputs, list):
                         val_loss += sum(criterion(output, batch_y) for output in val_outputs).item()
                     else:
                         val_loss += criterion(val_outputs, batch_y).item()
@@ -389,10 +364,9 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, num_epoch
 
     return model
 
-# Initialize models (no changes needed here)
 attention_model = AttentionNet(X_train_scaled.shape[1]).to(device)
 interaction_model = FeatureInteractionNet(X_train_scaled.shape[1]).to(device)
-num_tasks = 1  # Set this to the number of tasks you're actually predicting
+num_tasks = 1  # Set this to the number of tasks you're predicting
 multi_task_model = MultiTaskNet(X_train_scaled.shape[1], num_tasks).to(device)
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -420,20 +394,18 @@ except RuntimeError as e:
     print(f"Error occurred: {str(e)}")
     print("Training failed. Please check your GPU memory usage and model complexity.")
 
-# Evaluation function
 def evaluate_model(model, X, y):
     model.eval()
     with torch.no_grad():
         if isinstance(model, AttentionNet):
             outputs, _ = model(X)
         elif isinstance(model, MultiTaskNet):
-            outputs = model(X)[0]  # We'll focus on the first task for simplicity
+            outputs = model(X)[0]
         else:
             outputs = model(X)
         mse = criterion(outputs, y)
     return mse.item()
 
-# Evaluate models
 attention_mse = evaluate_model(attention_model, X_test_tensor, y_test_tensor)
 interaction_mse = evaluate_model(interaction_model, X_test_tensor, y_test_tensor)
 multi_task_mse = evaluate_model(multi_task_model, X_test_tensor, y_test_tensor)
@@ -443,17 +415,14 @@ print(f"Attention Model MSE: {attention_mse:.4f}")
 print(f"Interaction Model MSE: {interaction_mse:.4f}")
 print(f"Multi-Task Model MSE: {multi_task_mse:.4f}")
 
-# Analyze feature importance using attention weights
 attention_model.eval()
 with torch.no_grad():
     _, attention_weights = attention_model(X_test_tensor)
 
 feature_importance = attention_weights.mean(dim=0).cpu().numpy()
 
-# Get feature names
-feature_names = list(X.columns)  # Assuming X is your feature DataFrame
+feature_names = list(X.columns)
 
-# Sort features by importance
 feature_importance = list(zip(feature_names, feature_importance))
 feature_importance.sort(key=lambda x: x[1], reverse=True)
 
@@ -461,7 +430,6 @@ print("\nTop 10 most important features (Attention Model):")
 for feature, importance in feature_importance[:10]:
     print(f"{feature}: {importance:.4f}")
 
-# Ablation study
 def ablation_study(X, y, feature_groups):
     base_performance = evaluate_model(attention_model, X, y)
 
@@ -489,18 +457,15 @@ feature_groups = {
     'Paraphrasing': [i for i, name in enumerate(feature_names) if name in ['word_overlap', 'pos_change', 'synonym_usage']]
 }
 
-# Perform ablation study
 ablation_results = ablation_study(X_test_tensor, y_test_tensor, feature_groups)
 
 print("\nAblation Study Results:")
 for group, performance_drop in sorted(ablation_results.items(), key=lambda x: x[1], reverse=True):
     print(f"{group}: Performance drop = {performance_drop:.4f}")
 
-# BERT-based text analysis
 tokenizer = BertTokenizer.from_pretrained('bert-base-uncased')
 bert_model = BertModel.from_pretrained('bert-base-uncased').to(device)
 
-# Modify the BERT embedding function
 def get_bert_embeddings(text):
     if not isinstance(text, str):
         text = str(text)
@@ -509,11 +474,9 @@ def get_bert_embeddings(text):
         outputs = bert_model(**inputs)
     return outputs.last_hidden_state.mean(dim=1).squeeze().cpu().numpy()
 
-# Modify the BERT embedding extraction to use tqdm
 original_embeddings = np.array([get_bert_embeddings(str(text)) for text in tqdm(df['original_text'], desc="Processing original texts", leave=False)])
 undetectable_embeddings = np.array([get_bert_embeddings(str(text)) for text in tqdm(df['undetectable_text'], desc="Processing undetectable texts", leave=False)])
 
-# Calculate cosine similarity between original and undetectable embeddings
 from sklearn.metrics.pairwise import cosine_similarity
 similarities = [cosine_similarity(orig.reshape(1, -1), undetectable.reshape(1, -1))[0][0]
                 for orig, undetectable in zip(original_embeddings, undetectable_embeddings)]
@@ -523,7 +486,6 @@ print(f"Average cosine similarity: {np.mean(similarities):.4f}")
 print(f"Minimum similarity: {np.min(similarities):.4f}")
 print(f"Maximum similarity: {np.max(similarities):.4f}")
 
-# Correlation analysis
 correlation_matrix = np.corrcoef(np.column_stack((X, similarities)))
 feature_names_extended = feature_names + ['BERT_similarity']
 
@@ -541,7 +503,6 @@ plt.ylabel("Feature")
 plt.tight_layout()
 plt.show()
 
-# Visualize ablation study results
 plt.figure(figsize=(10, 6))
 sns.barplot(x=list(ablation_results.values()), y=list(ablation_results.keys()))
 plt.title("Ablation Study Results")
@@ -550,7 +511,6 @@ plt.ylabel("Feature Group")
 plt.tight_layout()
 plt.show()
 
-# Visualize BERT similarity distribution
 plt.figure(figsize=(10, 6))
 sns.histplot(similarities, kde=True)
 plt.title("Distribution of BERT Cosine Similarities")
@@ -558,9 +518,6 @@ plt.xlabel("Cosine Similarity")
 plt.ylabel("Frequency")
 plt.tight_layout()
 plt.show()
-
-# PCA visualization of BERT embeddings
-from sklearn.decomposition import PCA
 
 pca = PCA(n_components=2)
 combined_embeddings = np.vstack((original_embeddings, undetectable_embeddings))
@@ -576,13 +533,11 @@ plt.legend()
 plt.tight_layout()
 plt.show()
 
-# Analyze feature interactions
-interaction_model.eval()  # Set the model to evaluation mode
+interaction_model.eval()
 with torch.no_grad():
     interaction_outputs = interaction_model(X_test_tensor)
     interaction_weights = interaction_model.fc.weight.cpu().numpy()
 
-# Create a matrix to store pairwise feature interactions
 n_features = X_test_tensor.shape[1]
 interaction_matrix = np.zeros((n_features, n_features))
 
@@ -594,14 +549,12 @@ for i in range(n_features):
         interaction_matrix[j, i] = interaction_matrix[i, j]
         k += 1
 
-# Visualize feature interactions
 plt.figure(figsize=(12, 10))
 sns.heatmap(interaction_matrix, xticklabels=feature_names, yticklabels=feature_names, cmap='coolwarm', center=0)
 plt.title("Feature Interactions")
 plt.tight_layout()
 plt.show()
 
-# Analyze multi-task learning results
 multi_task_model.eval()
 with torch.no_grad():
     multi_task_outputs = multi_task_model(X_test_tensor)
@@ -611,7 +564,6 @@ for i, task_output in enumerate(multi_task_outputs):
     mse = nn.MSELoss()(task_output, y_test_tensor)
     print(f"Task: {task_names[i]}, MSE: {mse.item():.4f}")
 
-# Analyze shared representations
 shared_features = multi_task_model.shared_layers(X_test_tensor).detach().cpu().numpy()
 
 pca = PCA(n_components=2)
@@ -625,15 +577,6 @@ plt.xlabel("First Principal Component")
 plt.ylabel("Second Principal Component")
 plt.tight_layout()
 plt.show()
-
-print("\nConclusion:")
-print("This comprehensive analysis provides deep insights into the features and patterns that contribute to making text appear more 'human-like' and less detectable as AI-generated. Key findings include:")
-print("1. The most important features affecting AI detectability, as determined by our attention-based model.")
-print("2. The impact of different feature groups on detectability, revealed through our ablation study.")
-print("3. Semantic similarity between original and 'undetectable' texts, measured using BERT embeddings.")
-print("4. Complex feature interactions captured by our Feature Interaction Network.")
-print("5. Shared representations learned through multi-task learning, showing how different aspects of text generation and detection are related.")
-print("\nThese results can inform strategies for creating more natural-sounding AI-generated text and improving AI detection methods. They also highlight the complexity of the task and the need for sophisticated, multi-faceted approaches to both text generation and detection.")
 
 """
 1. Model Performance:
@@ -669,5 +612,4 @@ Key Insights:
 2. The use of adjectives and adverbs in the undetectable text plays a significant role.
 3. Syntactic features (like punctuation and auxiliary verbs) are important in distinguishing between human and AI-generated text.
 4. The high semantic similarity between original and undetectable texts suggests that current methods for making text undetectable focus on preserving meaning while changing surface-level features.
-5. The strong correlations across many features indicate that AI detectability is influenced by a wide range of linguistic characteristics, making it a complex problem.
-"""
+5. The strong correlations across many features indicate that AI detectability is influenced by a wide range of linguistic characteristics, making it a complex problem."""
