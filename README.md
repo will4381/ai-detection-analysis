@@ -1,5 +1,5 @@
 # AI Text Detectability Analysis
-All 1000 rows of data is available in `dataset.csv` with 119 rows having NaN values resulting in a total usable row count of 881. Claude Sonnet 3.5 was used to generate a significant portion of the code as well as clean it. 
+All 1000 rows of data is available in `dataset.csv` with 119 rows having NaN values resulting in a total usable row count of 881. Claude Sonnet 3.5 was used to generate portions of the code as well as clean it. 
 
 ## Table of Contents
 1. [Introduction](#introduction)
